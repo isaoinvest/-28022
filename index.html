@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="preconnect" href="https://aframe.io" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      /* 掃描UI */
+      #scanning-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        background-color: rgba(0, 0, 0, 0.2);
+        opacity: 1;
+        transition: opacity 0.3s;
+      }
+
+      #scanning-overlay.hidden {
+        opacity: 0;
+      }
+
+      .scanner-inner {
+        width: 200px;
+        height: 200px;
+        border: 2px solid rgba(0, 255, 255, 0.7);
+        border-radius: 10px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+      }
+
+      .scanner-line {
+        position: absolute;
+        height: 3px;
+        width: 100%;
+        background: linear-gradient(90deg, transparent, #00ffff, #00ffff, transparent);
+        top: 0;
+        animation: scan 2.5s linear infinite;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+      }
+
+      .corner {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-color: rgba(0, 255, 255, 0.9);
+        border-style: solid;
+        border-width: 0;
+      }
+      .corner-tl {
+        top: -2px;
+        left: -2px;
+        border-top-width: 3px;
+        border-left-width: 3px;
+      }
+      .corner-tr {
+        top: -2px;
+        right: -2px;
+        border-top-width: 3px;
+        border-right-width: 3px;
+      }
+      .corner-bl {
+        bottom: -2px;
+        left: -2px;
+        border-bottom-width: 3px;
+        border-left-width: 3px;
+      }
+      .corner-br {
+        bottom: -2px;
+        right: -2px;
+        border-bottom-width: 3px;
+        border-right-width: 3px;
+      }
+
+      .scanning-text {
+        position: absolute;
+        bottom: -35px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        text-align: center;
+        font-family: Arial, sans-serif;
+        color: rgba(0, 255, 255, 0.9);
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-size: 14px;
+        text-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+      }
+
+      /* 控制按鈕容器 */
+      .controls-container {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        display: flex;
+        gap: 15px;
+      }
+
+      /* 圖標按鈕樣式 */
+      .icon-button {
+        width: 48px;
+        height: 48px;
+        background-color: rgba(0, 0, 0, 0.6);
+        border: 2px solid rgba(0, 255, 255, 0.7);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        transition: all 0.3s ease;
+        opacity: 0.9;
+      }
+      
+      .icon-button:hover {
+        background-color: rgba(0, 0, 0, 0.8);
+        opacity: 1;
+        transform: scale(1.1);
+      }
+      
+      .icon-button.active {
+        background-color: rgba(0, 195, 255, 0.3);
+      }
+
+      /* SVG 圖標樣式 */
+      .icon-button svg {
+        width: 24px;
+        height: 24px;
+        fill: rgba(0, 255, 255, 0.9);
+      }
+
+      @keyframes scan {
+        0% { transform: translateY(0); }
+        50% { transform: translateY(197px); }
+        100% { transform: translateY(0); }
+      }
+
+      /* 全螢幕影片容器 */
+      #fullscreen-video-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 999;
+        display: none;
+        background-color: rgba(0, 0, 0, 0.9);
+        cursor: pointer;
+      }
+      #fullscreen-video-container.visible {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #fullscreen-video {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 控制按鈕 -->
+    <div class="controls-container">
+      <!-- 播放/暫停按鈕 -->
+      <button class="icon-button" id="play-button" aria-label="播放控制">
+        <svg viewBox="0 0 24 24" id="play-icon">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+        <svg viewBox="0 0 24 24" id="pause-icon" style="display:none;">
+          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+        </svg>
+      </button>
+      
+      <!-- 聲音按鈕 -->
+      <button class="icon-button" id="sound-button" aria-label="聲音控制">
+        <svg viewBox="0 0 24 24" id="sound-on-icon" style="display:none;">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+        </svg>
+        <svg viewBox="0 0 24 24" id="sound-off-icon">
+          <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="scanning-overlay">
+      <div class="scanner-inner">
+        <div class="scanner-line"></div>
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+        <div class="scanning-text">目標掃描中</div>
+      </div>
+    </div>
+    
+    <div id="fullscreen-video-container">
+      <video id="fullscreen-video" playsinline webkit-playsinline></video>
+    </div>
+
+    <a-scene
+      mindar-image="imageTargetSrc: https://raw.githubusercontent.com/isaoinvest/-28000/main/targets.mind;
+                    warmupTolerance: 5;
+                    missTolerance: 10;
+                    filterMinCF: 0.000001; 
+                    filterBeta: 250;
+                    uiScanning: #scanning-overlay;"
+      color-space="sRGB"
+      renderer="colorManagement: true, physicallyCorrectLights"
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+      loading-screen="enabled: true; dotsColor: #00ffff; backgroundColor: #000000"
+    >
+      <a-assets>
+        <video
+          id="video"
+          src="https://pub-ac80c6d0a305452bbe0bdfcec65b6a2c.r2.dev/28000.mp4"
+          preload="auto"
+          loop
+          crossorigin="anonymous"
+          playsinline
+          webkit-playsinline
+          muted
+        ></video>
+      </a-assets>
+
+      <a-camera
+        position="0 0 0"
+        look-controls="enabled: false"
+        cursor="fuse: false; rayOrigin: mouse;"
+        raycaster="far: 10000; objects: .clickable"
+      ></a-camera>
+
+      <a-entity
+        id="target0"
+        mindar-image-target="targetIndex: 0"
+        data-target-aspect-ratio="1.778"
+        fit-video-to-target
+      >
+        <a-video
+          id="video0-entity"
+          src="#video"
+          position="0 0 0"
+          rotation="0 0 0"
+          loop="true"
+        ></a-video>
+      </a-entity>
+    </a-scene>
+
+    <script>
+      // 等待 A-Frame 載入
+      if (window.AFRAME) {
+        initApp();
+      } else {
+        window.addEventListener('DOMContentLoaded', () => {
+          if (window.AFRAME) initApp();
+          else window.addEventListener('load', initApp);
+        });
+      }
+
+      function initApp() {
+        // 自動調整影片比例組件
+        AFRAME.registerComponent("fit-video-to-target", {
+          init: function () {
+            this.el.addEventListener("targetFound", () => {
+              const videoEntity = this.el.querySelector("a-video");
+              if (!videoEntity) return;
+              
+              const ratio = parseFloat(this.el.dataset.targetAspectRatio) || 1.0;
+              if (ratio > 0) {
+                videoEntity.setAttribute("geometry", {
+                  width: 1,
+                  height: 1 / ratio
+                });
+              }
+            });
+          }
+        });
+
+        // 主要元素
+        const videoEl = document.querySelector("#video");
+        const targetEl = document.querySelector("#target0");
+        const scanningOverlay = document.getElementById("scanning-overlay");
+        const playButton = document.getElementById("play-button");
+        const soundButton = document.getElementById("sound-button");
+        const fullscreenContainer = document.getElementById("fullscreen-video-container");
+        const fullscreenVideo = document.getElementById("fullscreen-video");
+        
+        // 圖標元素
+        const playIcon = document.getElementById("play-icon");
+        const pauseIcon = document.getElementById("pause-icon");
+        const soundOnIcon = document.getElementById("sound-on-icon");
+        const soundOffIcon = document.getElementById("sound-off-icon");
+
+        // 狀態管理
+        const state = {
+          targetFound: false,
+          audioEnabled: false,
+          continuePlay: false,
+          fullscreen: false,
+          hasPlayed: false
+        };
+
+        // 更新按鈕圖標
+        function updateButtonIcons() {
+          if (state.continuePlay) {
+            playIcon.style.display = "none";
+            pauseIcon.style.display = "block";
+            playButton.classList.add("active");
+          } else {
+            playIcon.style.display = "block";
+            pauseIcon.style.display = "none";
+            playButton.classList.remove("active");
+          }
+          
+          if (state.audioEnabled) {
+            soundOnIcon.style.display = "block";
+            soundOffIcon.style.display = "none";
+            soundButton.classList.add("active");
+          } else {
+            soundOnIcon.style.display = "none";
+            soundOffIcon.style.display = "block";
+            soundButton.classList.remove("active");
+          }
+        }
+
+        // 音訊控制
+        function toggleAudio() {
+          state.audioEnabled = !state.audioEnabled;
+          [videoEl, fullscreenVideo].forEach(v => {
+            if (v && v.src) v.muted = !state.audioEnabled;
+          });
+          updateButtonIcons();
+        }
+
+        // 影片播放控制
+        async function playVideo(video) {
+          if (!video || !video.src) return;
+          try {
+            await video.play();
+          } catch {
+            video.muted = true;
+            state.audioEnabled = false;
+            await video.play().catch(() => {});
+            updateButtonIcons();
+          }
+        }
+
+        function pauseVideo(video) {
+          if (video && video.src) video.pause();
+        }
+
+        // 全螢幕切換
+        function enterFullscreen() {
+          if (!videoEl.src) return;
+          fullscreenVideo.src = videoEl.src;
+          fullscreenVideo.currentTime = videoEl.currentTime;
+          fullscreenVideo.muted = !state.audioEnabled;
+          fullscreenContainer.classList.add("visible");
+          state.fullscreen = true;
+          playVideo(fullscreenVideo);
+        }
+
+        function exitFullscreen() {
+          if (state.fullscreen) {
+            videoEl.currentTime = fullscreenVideo.currentTime;
+            fullscreenContainer.classList.remove("visible");
+            state.fullscreen = false;
+            pauseVideo(fullscreenVideo);
+            fullscreenVideo.src = "";
+          }
+        }
+
+        // 播放按鈕處理
+        playButton.addEventListener("click", () => {
+          if (!state.hasPlayed) return;
+          
+          state.continuePlay = !state.continuePlay;
+          updateButtonIcons();
+          
+          if (state.continuePlay) {
+            if (!state.targetFound) {
+              enterFullscreen();
+              scanningOverlay.classList.add("hidden");
+            } else if (videoEl.paused) {
+              playVideo(videoEl);
+            }
+          } else {
+            exitFullscreen();
+            if (!state.targetFound) {
+              pauseVideo(videoEl);
+              scanningOverlay.classList.remove("hidden");
+            }
+          }
+        });
+
+        // 聲音按鈕處理
+        soundButton.addEventListener("click", toggleAudio);
+
+        // 全螢幕點擊退出
+        fullscreenContainer.addEventListener("click", () => {
+          exitFullscreen();
+          state.continuePlay = false;
+          updateButtonIcons();
+          if (!state.targetFound) {
+            scanningOverlay.classList.remove("hidden");
+          }
+        });
+
+        // 目標事件處理
+        targetEl.addEventListener("targetFound", () => {
+          state.targetFound = true;
+          state.hasPlayed = true;
+          
+          if (state.fullscreen) exitFullscreen();
+          
+          playVideo(videoEl);
+          scanningOverlay.classList.add("hidden");
+        });
+
+        targetEl.addEventListener("targetLost", () => {
+          state.targetFound = false;
+          
+          if (state.continuePlay) {
+            enterFullscreen();
+          } else {
+            pauseVideo(videoEl);
+            setTimeout(() => {
+              if (!state.targetFound && !state.continuePlay) {
+                scanningOverlay.classList.remove("hidden");
+              }
+            }, 200);
+          }
+        });
+
+        // 頁面可見性處理
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            pauseVideo(videoEl);
+            if (state.fullscreen) pauseVideo(fullscreenVideo);
+          } else {
+            if (state.fullscreen) {
+              playVideo(fullscreenVideo);
+            } else if (state.targetFound) {
+              playVideo(videoEl);
+            }
+          }
+        });
+
+        // 初始化音訊（需要用戶互動）
+        const initAudio = () => {
+          if (!state.audioEnabled) return;
+          toggleAudio();
+          document.removeEventListener("touchstart", initAudio);
+          document.removeEventListener("click", initAudio);
+        };
+        document.addEventListener("touchstart", initAudio, { passive: true });
+        document.addEventListener("click", initAudio);
+      }
+    </script>
+  </body>
+</html>
